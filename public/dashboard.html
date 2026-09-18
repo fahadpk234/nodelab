@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f2f2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .dashboard {
+            background: white;
+            padding: 40px;
+            text-align: center;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        button {
+            padding: 10px 25px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dashboard">
+        <h1>Welcome!</h1>
+
+        <h2 id="welcomeMessage"></h2>
+
+        <button id="logoutButton">Log Out</button>
+    </div>
+
+
+    <script>
+        // Check whether user is logged in
+        const loggedIn = localStorage.getItem("loggedIn");
+        const userName = localStorage.getItem("userName");
+
+        if (loggedIn !== "true" || !userName) {
+            window.location.href = "/index.html";
+        } else {
+            document.getElementById("welcomeMessage").textContent =
+                `Welcome, ${userName}!`;
+        }
+
+
+        // Logout
+        document.getElementById("logoutButton").addEventListener("click", function() {
+            localStorage.removeItem("loggedIn");
+            localStorage.removeItem("userName");
+
+            window.location.href = "/index.html";
+        });
+    </script>
+
+</body>
+</html>
