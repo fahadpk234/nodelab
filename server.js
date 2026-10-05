@@ -1,140 +1,232 @@
 const express = require("express");
 const fs = require("fs");
-const path = require("path");
 const EventEmitter = require("events");
+const { MongoClient } = require("mongodb");
 
 const app = express();
+
 const PORT = 3000;
 
-// File paths
-const usersFile = path.join(__dirname, "users.json");
-const auditFile = path.join(__dirname, "audit.log");
+
+// MongoDB connection
+const client = new MongoClient("mongodb://localhost:27017");
+
+let usersCollection;
+
+
+// Audit file
+const auditFile = "audit.log";
+
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
 
-// Custom EventEmitter
+app.use(express.static("public"));
+
+
+// Create EventEmitter
 const userEvents = new EventEmitter();
 
-// Read users from users.json
-function readUsers() {
-    try {
-        const data = fs.readFileSync(usersFile, "utf8");
-        return JSON.parse(data);
-    } catch (error) {
-        console.error("Error reading users.json:", error);
-        return [];
-    }
-}
 
-// Save users to users.json
-function saveUsers(users) {
-    fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-}
-
-// Write activity to audit.log
-function writeAudit(message) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${message}\n`;
-
-    fs.appendFileSync(auditFile, logMessage);
-}
-
-// Signup event listener
+// SIGN UP EVENT
 userEvents.on("signup", (user) => {
-    writeAudit(`SIGNUP: New account created for ${user.email}`);
+
+    const message =
+        `[${new Date().toLocaleString()}] SIGNUP: ${user.email}\n`;
+
+    fs.appendFileSync(auditFile, message);
+
+    console.log(message.trim());
+
 });
 
-// Login event listener
+
+// LOGIN EVENT
 userEvents.on("login", (user) => {
-    writeAudit(`LOGIN: User authenticated - ${user.email}`);
+
+    const message =
+        `[${new Date().toLocaleString()}] LOGIN: ${user.email}\n`;
+
+    fs.appendFileSync(auditFile, message);
+
+    console.log(message.trim());
+
 });
 
-// POST /signup
-app.post("/signup", (req, res) => {
-    const { name, email, password } = req.body;
 
-    // Check for missing fields
-    if (!name || !email || !password) {
-        return res.status(400).json({
-            success: false,
-            message: "Please fill in all fields."
+// SIGN UP ROUTE
+app.post("/signup", async (req, res) => {
+
+    try {
+
+        const { name, email, password } = req.body;
+
+
+        // Check empty fields
+        if (!name || !email || !password) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Please fill in all fields."
+            });
+
+        }
+
+
+        // Check if email already exists
+        const existingUser = await usersCollection.findOne({
+            email: email.toLowerCase()
         });
+
+
+        if (existingUser) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Email already registered."
+            });
+
+        }
+
+
+        // Create new user
+        const newUser = {
+            name: name,
+            email: email.toLowerCase(),
+            password: password
+        };
+
+
+        // Save user to MongoDB
+        await usersCollection.insertOne(newUser);
+
+
+        // Emit signup event
+        userEvents.emit("signup", newUser);
+
+
+        // Send response
+        res.json({
+            success: true,
+            message: "Registration successful!"
+        });
+
+    } catch (error) {
+
+        console.error("Signup error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Server error."
+        });
+
     }
 
-    const users = readUsers();
-
-    // Check if email already exists
-    const existingUser = users.find(
-        user => user.email.toLowerCase() === email.toLowerCase()
-    );
-
-    if (existingUser) {
-        return res.status(409).json({
-            success: false,
-            message: "Email already registered."
-        });
-    }
-
-    // Create new user
-    const newUser = {
-        name,
-        email,
-        password
-    };
-
-    users.push(newUser);
-    saveUsers(users);
-
-    // Emit signup event
-    userEvents.emit("signup", newUser);
-
-    res.json({
-        success: true,
-        message: "Account created successfully!"
-    });
 });
 
-// POST /login
-app.post("/login", (req, res) => {
-    const { email, password } = req.body;
 
-    // Check for missing fields
-    if (!email || !password) {
-        return res.status(400).json({
-            success: false,
-            message: "Please enter email and password."
+// LOGIN ROUTE
+app.post("/login", async (req, res) => {
+
+    try {
+
+        const { email, password } = req.body;
+
+
+        // Check empty fields
+        if (!email || !password) {
+
+            return res.status(400).json({
+                success: false,
+                message: "Please enter email and password."
+            });
+
+        }
+
+
+        // Find user in MongoDB
+        const user = await usersCollection.findOne({
+            email: email.toLowerCase(),
+            password: password
         });
+
+
+        // User not found
+        if (!user) {
+
+            return res.status(401).json({
+                success: false,
+                message: "Invalid email or password."
+            });
+
+        }
+
+
+        // Emit login event
+        userEvents.emit("login", user);
+
+
+        // Send success response
+        res.json({
+            success: true,
+            message: "Login successful!",
+            name: user.name
+        });
+
+    } catch (error) {
+
+        console.error("Login error:", error);
+
+        res.status(500).json({
+            success: false,
+            message: "Server error."
+        });
+
     }
 
-    const users = readUsers();
+});
 
-    // Find matching user
-    const user = users.find(
-        user =>
-            user.email.toLowerCase() === email.toLowerCase() &&
-            user.password === password
-    );
 
-    if (!user) {
-        return res.status(401).json({
-            success: false,
-            message: "Invalid email or password."
+// Connect to MongoDB and start server
+async function startServer() {
+
+    try {
+
+        // Connect to MongoDB
+        await client.connect();
+
+        console.log("Connected to MongoDB");
+
+
+        // Select database
+        const database = client.db("loginDB");
+
+
+        // Select collection
+        usersCollection = database.collection("users");
+
+
+        console.log("Database: loginDB");
+        console.log("Collection: users");
+
+
+        // Start server
+        app.listen(PORT, () => {
+
+            console.log(
+                `Server running at http://localhost:${PORT}`
+            );
+
         });
+
+    } catch (error) {
+
+        console.error("MongoDB connection failed:", error);
+
     }
 
-    // Emit login event
-    userEvents.emit("login", user);
+}
 
-    res.json({
-        success: true,
-        message: "Login successful!",
-        name: user.name
-    });
-});
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-});
+// Start application
+startServer();
